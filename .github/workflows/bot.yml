@@ -1,0 +1,65 @@
+name: oanda-bot
+
+on:
+  schedule:
+    # H1 candles close on the hour; run a few minutes after so the bar is complete.
+    - cron: "4 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: oanda-bot
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: bot/requirements.txt
+
+      - run: pip install -r bot/requirements.txt
+
+      - name: Restore last handled bar
+        uses: actions/cache/restore@v4
+        with:
+          path: bot/state.json
+          key: oanda-bot-state-${{ github.run_id }}
+          restore-keys: oanda-bot-state-
+
+      - name: Decide and trade
+        working-directory: bot
+        env:
+          OANDA_TOKEN: ${{ secrets.OANDA_TOKEN }}
+          OANDA_ACCOUNT_ID: ${{ secrets.OANDA_ACCOUNT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'true' }}
+          OANDA_LIVE: ${{ vars.OANDA_LIVE || 'false' }}
+          INSTRUMENT: ${{ vars.INSTRUMENT || 'EUR_USD' }}
+          GRANULARITY: ${{ vars.GRANULARITY || 'H1' }}
+          RISK_PCT: ${{ vars.RISK_PCT || '1.0' }}
+          MAX_UNITS: ${{ vars.MAX_UNITS || '100000' }}
+          ALLOW_SHORT: ${{ vars.ALLOW_SHORT || 'true' }}
+          TRAILING_STOP: ${{ vars.TRAILING_STOP || 'true' }}
+          EMA_FAST: ${{ vars.EMA_FAST || '20' }}
+          EMA_SLOW: ${{ vars.EMA_SLOW || '50' }}
+          ATR_PERIOD: ${{ vars.ATR_PERIOD || '14' }}
+          ATR_MULT: ${{ vars.ATR_MULT || '2.0' }}
+          STATE_FILE: state.json
+        run: python main.py
+
+      - name: Save last handled bar
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: bot/state.json
+          key: oanda-bot-state-${{ github.run_id }}
